@@ -3,8 +3,10 @@ import { useChatStore } from '../store/useChatStore';
 import { Plus, MessageSquare, Trash2, PanelLeftClose } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import { ConfirmModal } from './ConfirmModal';
 
 export const Sidebar = () => {
+  const [isClearHistoryOpen, setIsClearHistoryOpen] = React.useState(false);
   const { 
     sessions, 
     currentSessionId, 
@@ -77,11 +79,7 @@ export const Sidebar = () => {
 
       <div className="p-4 border-t border-white/10 space-y-4">
         <button 
-          onClick={() => {
-            if (confirm("Are you sure you want to clear all chat history?")) {
-              clearAllSessions();
-            }
-          }}
+          onClick={() => setIsClearHistoryOpen(true)}
           className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
         >
           <Trash2 size={14} />
@@ -95,6 +93,18 @@ export const Sidebar = () => {
           </div>
         </div>
       </div>
+      <ConfirmModal
+        isOpen={isClearHistoryOpen}
+        title="Clear all chat history?"
+        description="This removes every stored assistant conversation from the sidebar."
+        confirmLabel="Clear history"
+        tone="danger"
+        onClose={() => setIsClearHistoryOpen(false)}
+        onConfirm={() => {
+          clearAllSessions();
+          setIsClearHistoryOpen(false);
+        }}
+      />
     </div>
   );
 };

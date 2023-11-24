@@ -3,10 +3,16 @@ import { DragDropContext, DropResult } from '@hello-pangea/dnd';
 import { useTaskStore } from '../store/useTaskStore';
 import { Column } from './Column';
 import { AddTaskModal } from './AddTaskModal';
-import { TaskList } from './TaskList';
-import { Priority } from '../types/task';
+import { ColumnModal } from './ColumnModal';
+import { ConfirmModal } from './ConfirmModal';
+import { TaskDetailsDrawer } from './TaskDetailsDrawer';
+import { TaskListView } from './TaskListView';
+import { WorkspaceOverview } from './WorkspaceOverview';
+import { Priority, Task } from '../types/task';
 import { WORKSPACE_PROJECTS, WORKSPACE_ASSIGNEES } from '../data/workspace';
 import { 
+  ChevronLeft,
+  ChevronRight,
   Search, 
   Filter,
   LayoutGrid, 
@@ -15,13 +21,18 @@ import {
   Bell, 
   Settings,
   ChevronDown,
-  Sparkles
+  Sparkles,
+  SunMedium,
+  MoonStar
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
+import type { ThemeMode } from '../App';
 
 interface KanbanBoardProps {
   onOpenAssistant?: () => void;
+  themeMode: ThemeMode;
+  onToggleTheme: () => void;
 }
 
 type NotificationItem = {
@@ -63,7 +74,7 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   }
 ];
 
-export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
+export const KanbanBoard = ({ onOpenAssistant, themeMode, onToggleTheme }: KanbanBoardProps) => {
   const { 
     tasks, 
     columns, 
@@ -72,11 +83,16 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
     reorderColumn,
     addColumn,
     renameColumn,
-    deleteColumn
+    deleteColumn,
+    updateTask,
+    duplicateTask,
+    deleteTask
   } = useTaskStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activePriorities, setActivePriorities] = useState<Priority[]>([]);
@@ -86,14 +102,39 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
+  const [columnModalMode, setColumnModalMode] = useState<'create' | 'rename'>('create');
+  const [columnDraft, setColumnDraft] = useState('');
+  const [activeManageColumnId, setActiveManageColumnId] = useState<string | null>(null);
+  const [confirmationState, setConfirmationState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    action: () => void;
+  } | null>(null);
+  const [mobileActiveColumnId, setMobileActiveColumnId] = useState<string | null>(null);
+  const [collapsedColumnIds, setCollapsedColumnIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+
+    try {
+      const storedValue = window.localStorage.getItem('taskflow-collapsed-columns');
+      return storedValue ? JSON.parse(storedValue) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const filterRef = useRef<HTMLDivElement>(null);
   const projectRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const desktopSearchRef = useRef<HTMLInputElement>(null);
+  const mobileSearchRef = useRef<HTMLInputElement>(null);
+  const mobileColumnRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const activeNavItem = NAV_ITEMS.find((item) => item.id === activeNav) ?? NAV_ITEMS[0];
   const activeProject = WORKSPACE_PROJECTS.find((project) => project.id === activeProjectId) ?? WORKSPACE_PROJECTS[0];
+  const selectedTask = selectedTaskId ? tasks[selectedTaskId] ?? null : null;
   const unreadNotifications = notifications.filter((item) => !item.read).length;
   const primaryAssignee = WORKSPACE_ASSIGNEES[0] ?? 'You';
 
@@ -134,6 +175,63 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isFilterOpen, isProjectMenuOpen, isNotificationsOpen, isSettingsOpen]);
+
+  useEffect(() => {
+    window.localStorage.setItem('taskflow-collapsed-columns', JSON.stringify(collapsedColumnIds));
+  }, [collapsedColumnIds]);
+
+  useEffect(() => {
+    if (!columnOrder.length) {
+      setMobileActiveColumnId(null);
+      return;
+    }
+
+    if (!mobileActiveColumnId || !columnOrder.includes(mobileActiveColumnId)) {
+      setMobileActiveColumnId(columnOrder[0]);
+    }
+  }, [columnOrder, mobileActiveColumnId]);
+
+  useEffect(() => {
+    const handleKeyboardShortcuts = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable;
+
+      if (event.key === '/' && !isTyping) {
+        event.preventDefault();
+        desktopSearchRef.current?.focus();
+        mobileSearchRef.current?.focus();
+        return;
+      }
+
+      if (isTyping) return;
+
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        openTaskModal();
+      }
+
+      if (event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        setViewMode('board');
+      }
+
+      if (event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        setViewMode('list');
+      }
+
+      if (event.key.toLowerCase() === 'a' && event.shiftKey && onOpenAssistant) {
+        event.preventDefault();
+        onOpenAssistant();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => document.removeEventListener('keydown', handleKeyboardShortcuts);
+  }, [onOpenAssistant]);
 
   const onDragEnd = (result: DropResult) => {
     const { destination, source, draggableId } = result;
@@ -196,8 +294,22 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
   };
 
   const openTaskModal = (columnId?: string) => {
+    setEditingTask(null);
     setActiveColumnId(columnId ?? columnOrder[0] ?? null);
     setIsModalOpen(true);
+    closeAllMenus();
+  };
+
+  const openEditTaskModal = (task: Task) => {
+    setSelectedTaskId(null);
+    setEditingTask(task);
+    setActiveColumnId(task.status);
+    setIsModalOpen(true);
+    closeAllMenus();
+  };
+
+  const openTaskDetails = (task: Task) => {
+    setSelectedTaskId(task.id);
     closeAllMenus();
   };
 
@@ -256,16 +368,39 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
   };
 
   const handleAddColumn = () => {
-    const name = prompt('Column name');
-    if (!name || !name.trim()) return;
-    addColumn(name.trim());
+    setColumnModalMode('create');
+    setColumnDraft('');
+    setActiveManageColumnId(null);
+    setIsColumnModalOpen(true);
+    closeAllMenus();
   };
 
   const handleRenameColumn = (columnId: string) => {
     const currentTitle = columns[columnId]?.title ?? 'Column';
-    const nextTitle = prompt('Rename column', currentTitle);
-    if (!nextTitle || !nextTitle.trim()) return;
-    renameColumn(columnId, nextTitle.trim());
+    setColumnModalMode('rename');
+    setColumnDraft(currentTitle);
+    setActiveManageColumnId(columnId);
+    setIsColumnModalOpen(true);
+    closeAllMenus();
+  };
+
+  const handleColumnModalSubmit = (title: string) => {
+    if (columnModalMode === 'create') {
+      addColumn(title);
+      return;
+    }
+
+    if (activeManageColumnId) {
+      renameColumn(activeManageColumnId, title);
+    }
+  };
+
+  const toggleColumnCollapse = (columnId: string) => {
+    setCollapsedColumnIds((prev) =>
+      prev.includes(columnId)
+        ? prev.filter((id) => id !== columnId)
+        : [...prev, columnId]
+    );
   };
 
   const handleDeleteColumn = (columnId: string) => {
@@ -278,9 +413,75 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
       ? `Delete "${column.title}"? Tasks will move to "${fallbackTitle}".`
       : `Delete "${column.title}"? This will remove all tasks in the column.`;
 
-    if (confirm(confirmationMessage)) {
-      deleteColumn(columnId);
-    }
+    setConfirmationState({
+      title: `Delete ${column.title}?`,
+      description: confirmationMessage,
+      confirmLabel: 'Delete column',
+      action: () => {
+        deleteColumn(columnId);
+        setConfirmationState(null);
+      }
+    });
+  };
+
+  const handleDeleteTask = (task: Task) => {
+    setConfirmationState({
+      title: `Delete ${task.title}?`,
+      description: 'This task will be removed from the board. You can duplicate it first if you want to keep a copy.',
+      confirmLabel: 'Delete task',
+      action: () => {
+        deleteTask(task.id, task.status);
+        if (selectedTaskId === task.id) {
+          setSelectedTaskId(null);
+        }
+        setConfirmationState(null);
+      }
+    });
+  };
+
+  const handleDuplicateTask = (task: Task) => {
+    duplicateTask(task.id);
+  };
+
+  const handleMarkTaskDone = (task: Task) => {
+    const doneColumnId = columnOrder.find((columnId) => columns[columnId]?.title.toLowerCase() === 'done') ?? 'done';
+    updateTask(task.id, {
+      status: doneColumnId,
+      activity: [
+        ...task.activity,
+        {
+          id: crypto.randomUUID(),
+          text: `Moved task to ${columns[doneColumnId]?.title ?? 'Done'}`,
+          createdAt: Date.now()
+        }
+      ]
+    });
+  };
+
+  const handleTaskUpdate = (taskId: string, updates: Partial<Task>) => {
+    updateTask(taskId, updates);
+  };
+
+  const handleAddComment = (task: Task, content: string) => {
+    updateTask(task.id, {
+      comments: [
+        ...task.comments,
+        {
+          id: crypto.randomUUID(),
+          author: primaryAssignee,
+          content,
+          createdAt: Date.now()
+        }
+      ],
+      activity: [
+        ...task.activity,
+        {
+          id: crypto.randomUUID(),
+          text: 'Added a new comment',
+          createdAt: Date.now()
+        }
+      ]
+    });
   };
 
   const handleProjectSelect = (projectId: string) => {
@@ -302,13 +503,39 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
     setSearchQuery('');
     setActivePriorities([]);
     setViewMode('board');
+    setCollapsedColumnIds([]);
     setIsFilterOpen(false);
     setIsProjectMenuOpen(false);
     setIsNotificationsOpen(false);
     setIsSettingsOpen(false);
   };
 
+  const scrollToColumn = (columnId: string) => {
+    setMobileActiveColumnId(columnId);
+    mobileColumnRefs.current[columnId]?.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'start',
+      block: 'nearest'
+    });
+  };
+
+  const handleCycleMobileColumn = (direction: 'previous' | 'next') => {
+    if (!mobileActiveColumnId) return;
+    const currentIndex = columnOrder.indexOf(mobileActiveColumnId);
+    if (currentIndex === -1) return;
+
+    const nextIndex =
+      direction === 'previous'
+        ? Math.max(0, currentIndex - 1)
+        : Math.min(columnOrder.length - 1, currentIndex + 1);
+
+    scrollToColumn(columnOrder[nextIndex]);
+  };
+
   const activeFilterCount = activePriorities.length;
+  const hasVisibleTasks = listTasks.length > 0;
+  const hasActiveFilters = Boolean(searchQuery.trim()) || activePriorities.length > 0 || activeNav !== NAV_ITEMS[0].id;
+  const isDashboardView = activeNav === 'dashboard';
 
   return (
     <motion.div
@@ -318,8 +545,9 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
       className="flex-1 flex flex-col h-full app-surface overflow-hidden"
     >
       {/* Top Navbar */}
-      <header className="h-16 border-b border-white/10 flex items-center px-8 justify-between bg-brand-surface/50 backdrop-blur-xl">
-        <div className="flex items-center gap-8">
+      <header className="relative z-40 border-b border-white/10 bg-brand-surface/50 px-4 py-4 backdrop-blur-xl sm:px-8 sm:py-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 flex items-center gap-4 sm:gap-8">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-lg shadow-black/20">
               <div className="w-4 h-4 bg-black rounded-sm" />
@@ -327,7 +555,7 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
             <h1 className="text-lg font-bold tracking-tight">TaskFlow</h1>
           </div>
           
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden min-w-0 items-center gap-1 overflow-x-auto xl:flex">
             {NAV_ITEMS.map((item) => (
               <button 
                 key={item.id}
@@ -345,10 +573,11 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="relative hidden sm:block">
+        <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end">
+          <div className="relative hidden lg:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" size={16} />
             <input 
+              ref={desktopSearchRef}
               type="text"
               placeholder="Search tasks..."
               value={searchQuery}
@@ -365,6 +594,14 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
               Assistant
             </button>
           )}
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-brand-muted transition-all hover:border-white/20 hover:text-white"
+          >
+            {themeMode === 'aurora' ? <SunMedium size={16} /> : <MoonStar size={16} />}
+            <span className="hidden sm:inline">{themeMode === 'aurora' ? 'Daybreak' : 'Aurora'}</span>
+          </button>
           <div className="relative" ref={notificationsRef}>
             <button
               onClick={toggleNotificationsMenu}
@@ -379,7 +616,7 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
             </button>
 
             {isNotificationsOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-brand-surface/90 border border-white/10 rounded-2xl shadow-xl z-30 overflow-hidden backdrop-blur-xl">
+              <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-white/10 bg-[color:var(--color-brand-surface)] shadow-[0_24px_60px_rgba(0,0,0,0.45)] z-[80] overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                   <p className="text-sm font-semibold">Notifications</p>
                   {unreadNotifications > 0 && (
@@ -423,7 +660,7 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
             </button>
 
             {isSettingsOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-brand-surface/90 border border-white/10 rounded-2xl shadow-xl z-30 overflow-hidden backdrop-blur-xl">
+              <div className="absolute right-0 mt-2 w-56 bg-brand-surface/90 border border-white/10 rounded-2xl shadow-xl z-[80] overflow-hidden backdrop-blur-xl">
                 <div className="px-4 py-3 border-b border-white/10">
                   <p className="text-sm font-semibold">Workspace</p>
                 </div>
@@ -467,10 +704,11 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
           </div>
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 border border-white/10 shadow-lg shadow-indigo-500/30" />
         </div>
+        </div>
       </header>
 
       {/* Sub-header */}
-      <div className="px-8 py-6 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-brand-surface/40 backdrop-blur-xl">
+      <div className="relative z-20 px-4 py-4 border-b border-white/5 flex flex-col gap-4 bg-brand-surface/40 backdrop-blur-xl sm:px-8 sm:py-6">
         <div>
           <div className="flex items-center gap-3 mb-1 relative" ref={projectRef}>
             <button
@@ -515,9 +753,20 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
             )}
           </div>
           <p className="text-sm text-brand-muted">{activeProject?.description}</p>
+          <div className="relative mt-4 lg:hidden">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" size={16} />
+            <input
+              ref={mobileSearchRef}
+              type="text"
+              placeholder="Search tasks..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-10 pr-4 text-sm transition-all focus:border-white/30 focus:outline-none"
+            />
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative" ref={filterRef}>
             <button
               onClick={toggleFilterMenu}
@@ -533,7 +782,7 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
             </button>
 
             {isFilterOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-brand-surface/95 border border-white/10 rounded-2xl shadow-xl p-3 z-30 backdrop-blur-xl">
+              <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-white/10 bg-[color:var(--color-brand-surface)] shadow-[0_24px_60px_rgba(0,0,0,0.45)] p-3 z-[70]">
                 <div className="text-[10px] font-semibold uppercase tracking-widest text-brand-muted mb-2">
                   Priority
                 </div>
@@ -601,12 +850,98 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
       </div>
 
       {/* Board / List */}
-      <main className="flex-1 overflow-hidden p-6">
+      <main className="relative z-0 flex-1 overflow-hidden p-3 sm:p-6">
         <div className="h-full rounded-3xl border border-white/10 bg-white/[0.03] shadow-[0_20px_60px_rgba(0,0,0,0.35)] overflow-hidden">
-          {viewMode === 'board' ? (
+          {isDashboardView ? (
+            <WorkspaceOverview
+              tasks={tasks}
+              columns={columns}
+              columnOrder={columnOrder}
+              projects={WORKSPACE_PROJECTS}
+              activeProjectId={activeProjectId}
+              onAddTask={() => openTaskModal()}
+              onOpenTask={openTaskDetails}
+            />
+          ) : !hasVisibleTasks ? (
+            <div className="flex h-full items-center justify-center p-6 sm:p-10">
+              <div className="max-w-xl rounded-[28px] border border-white/10 bg-white/[0.04] p-6 text-center shadow-[0_18px_50px_rgba(0,0,0,0.22)] sm:p-10">
+                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+                  <Search size={22} className="text-white/80" />
+                </div>
+                <h3 className="text-2xl font-semibold tracking-tight">
+                  {hasActiveFilters ? 'No tasks match this view' : 'Your board is ready for the next move'}
+                </h3>
+                <p className="mt-3 text-sm leading-relaxed text-brand-muted">
+                  {hasActiveFilters
+                    ? 'Try clearing search and priority filters, or switch to another team/project lens.'
+                    : 'Create your first task to start shaping the workflow for this project.'}
+                </p>
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openTaskModal()}
+                    className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition-all hover:bg-white/90"
+                  >
+                    Add task
+                  </button>
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={handleResetWorkspace}
+                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-brand-muted transition-all hover:border-white/20 hover:text-white"
+                    >
+                      Reset workspace view
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : viewMode === 'board' ? (
             <DragDropContext onDragEnd={onDragEnd}>
-              <div className="h-full overflow-x-auto overflow-y-hidden p-6">
-                <div className="flex gap-8 h-full min-w-max">
+              <div className="border-b border-white/5 px-4 py-3 md:hidden">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCycleMobileColumn('previous')}
+                    disabled={!mobileActiveColumnId || columnOrder.indexOf(mobileActiveColumnId) <= 0}
+                    className="rounded-xl border border-white/10 bg-white/5 p-2 text-brand-muted transition-all hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <div className="flex-1 overflow-x-auto">
+                    <div className="flex min-w-max gap-2">
+                      {columnOrder.map((columnId) => {
+                        const isActive = mobileActiveColumnId === columnId;
+                        return (
+                          <button
+                            key={columnId}
+                            type="button"
+                            onClick={() => scrollToColumn(columnId)}
+                            className={cn(
+                              'rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-all',
+                              isActive
+                                ? 'border-white/20 bg-white/12 text-white'
+                                : 'border-white/10 bg-white/5 text-brand-muted hover:border-white/20 hover:text-white'
+                            )}
+                          >
+                            {columns[columnId]?.title ?? columnId}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCycleMobileColumn('next')}
+                    disabled={!mobileActiveColumnId || columnOrder.indexOf(mobileActiveColumnId) >= columnOrder.length - 1}
+                    className="rounded-xl border border-white/10 bg-white/5 p-2 text-brand-muted transition-all hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+              <div className="h-full overflow-x-auto overflow-y-hidden p-4 sm:p-6">
+                <div className="flex gap-4 sm:gap-8 h-full min-w-max">
                   {columnOrder.map((columnId) => {
                     const column = columns[columnId];
                     const columnTasks = column.taskIds
@@ -614,21 +949,38 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
                       .filter((task) => matchesFilters(task.title, task.description, task.priority, task.projectId, task.assignee));
 
                     return (
-                      <Column 
-                        key={column.id} 
-                        id={column.id} 
-                        title={column.title} 
-                        tasks={columnTasks} 
-                        onAddTask={() => openTaskModal(column.id)}
-                        onRename={handleRenameColumn}
-                        onDelete={handleDeleteColumn}
-                        canDelete={columnOrder.length > 1}
-                      />
+                      <div
+                        key={column.id}
+                        ref={(element) => {
+                          mobileColumnRefs.current[column.id] = element;
+                        }}
+                        className={cn(
+                          'shrink-0',
+                          mobileActiveColumnId && mobileActiveColumnId !== column.id ? 'hidden md:block' : 'block'
+                        )}
+                      >
+                        <Column
+                          id={column.id}
+                          title={column.title}
+                          tasks={columnTasks}
+                          onAddTask={() => openTaskModal(column.id)}
+                          onEditTask={openEditTaskModal}
+                          onOpenTask={openTaskDetails}
+                          onDuplicateTask={handleDuplicateTask}
+                          onDeleteTask={handleDeleteTask}
+                          onMarkTaskDone={handleMarkTaskDone}
+                          isCollapsed={collapsedColumnIds.includes(column.id)}
+                          onToggleCollapse={toggleColumnCollapse}
+                          onRename={handleRenameColumn}
+                          onDelete={handleDeleteColumn}
+                          canDelete={columnOrder.length > 1}
+                        />
+                      </div>
                     );
                   })}
                   
                   {/* Add Column Placeholder */}
-                  <div className="w-80 shrink-0 h-full">
+                  <div className="hidden h-full w-[18.5rem] shrink-0 sm:w-80 md:block">
                     <button
                       onClick={handleAddColumn}
                       className="w-full h-12 border border-dashed border-white/20 rounded-2xl flex items-center justify-center gap-2 text-brand-muted hover:text-white hover:border-white/40 transition-all group"
@@ -641,8 +993,14 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
               </div>
             </DragDropContext>
           ) : (
-            <div className="h-full overflow-y-auto p-6">
-              <TaskList tasks={listTasks} columns={columns} />
+            <div className="h-full overflow-y-auto p-4 sm:p-6">
+              <TaskListView
+                tasks={listTasks}
+                columns={columns}
+                onEditTask={openEditTaskModal}
+                onOpenTask={openTaskDetails}
+                onUpdateTask={handleTaskUpdate}
+              />
             </div>
           )}
         </div>
@@ -653,9 +1011,42 @@ export const KanbanBoard = ({ onOpenAssistant }: KanbanBoardProps) => {
         onClose={() => {
           setIsModalOpen(false);
           setActiveColumnId(null);
+          setEditingTask(null);
         }}
         defaultColumnId={activeColumnId}
         defaultProjectId={activeProjectId}
+        taskToEdit={editingTask}
+      />
+      <ColumnModal
+        isOpen={isColumnModalOpen}
+        mode={columnModalMode}
+        initialValue={columnDraft}
+        onClose={() => {
+          setIsColumnModalOpen(false);
+          setColumnDraft('');
+          setActiveManageColumnId(null);
+        }}
+        onSubmit={handleColumnModalSubmit}
+      />
+      <TaskDetailsDrawer
+        task={selectedTask}
+        columnTitle={selectedTask ? columns[selectedTask.status]?.title : undefined}
+        onClose={() => setSelectedTaskId(null)}
+        onEdit={openEditTaskModal}
+        onUpdateTask={handleTaskUpdate}
+        onDuplicate={handleDuplicateTask}
+        onDelete={handleDeleteTask}
+        onMarkDone={handleMarkTaskDone}
+        onAddComment={handleAddComment}
+      />
+      <ConfirmModal
+        isOpen={Boolean(confirmationState)}
+        title={confirmationState?.title ?? ''}
+        description={confirmationState?.description ?? ''}
+        confirmLabel={confirmationState?.confirmLabel ?? 'Confirm'}
+        tone="danger"
+        onClose={() => setConfirmationState(null)}
+        onConfirm={() => confirmationState?.action()}
       />
     </motion.div>
 
