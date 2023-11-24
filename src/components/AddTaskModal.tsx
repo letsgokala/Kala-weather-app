@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTaskStore } from '../store/useTaskStore';
-import { Priority } from '../types/task';
+import { Priority, Task } from '../types/task';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WORKSPACE_ASSIGNEES, WORKSPACE_PROJECTS } from '../data/workspace';
@@ -10,6 +10,7 @@ interface AddTaskModalProps {
   onClose: () => void;
   defaultColumnId?: string | null;
   defaultProjectId?: string | null;
+  taskToEdit?: Task | null;
 }
 
 const defaultAssignee = WORKSPACE_ASSIGNEES[0] ?? 'You';
@@ -18,9 +19,10 @@ export const AddTaskModal = ({
   isOpen,
   onClose,
   defaultColumnId,
-  defaultProjectId
+  defaultProjectId,
+  taskToEdit
 }: AddTaskModalProps) => {
-  const { addTask, columns, columnOrder } = useTaskStore();
+  const { addTask, updateTask, columns, columnOrder } = useTaskStore();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
@@ -31,25 +33,58 @@ export const AddTaskModal = ({
 
   useEffect(() => {
     if (!isOpen) return;
+
+    if (taskToEdit) {
+      setTitle(taskToEdit.title);
+      setDescription(taskToEdit.description);
+      setPriority(taskToEdit.priority);
+      setColumnId(taskToEdit.status);
+      setProjectId(taskToEdit.projectId);
+      setAssignee(taskToEdit.assignee ?? defaultAssignee);
+      setDueDate(taskToEdit.dueDate ? taskToEdit.dueDate.slice(0, 10) : '');
+      return;
+    }
+
     const fallbackColumn = defaultColumnId ?? columnOrder[0] ?? '';
     const fallbackProject = defaultProjectId ?? WORKSPACE_PROJECTS[0]?.id ?? '';
 
+    setTitle('');
+    setDescription('');
+    setPriority('medium');
     setColumnId(fallbackColumn);
     setProjectId(fallbackProject);
     setAssignee(defaultAssignee);
     setDueDate('');
-  }, [isOpen, defaultColumnId, defaultProjectId, columnOrder]);
+  }, [isOpen, defaultColumnId, defaultProjectId, columnOrder, taskToEdit]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (title.trim() && columnId && projectId) {
-      addTask(columnId, title, description, priority, assignee, dueDate || undefined, projectId);
-      setTitle('');
-      setDescription('');
-      setPriority('medium');
-      onClose();
+
+    if (!title.trim() || !columnId || !projectId) {
+      return;
     }
+
+    if (taskToEdit) {
+      updateTask(taskToEdit.id, {
+        title: title.trim(),
+        description,
+        priority,
+        status: columnId,
+        projectId,
+        assignee,
+        dueDate: dueDate || undefined
+      });
+    } else {
+      addTask(columnId, title.trim(), description, priority, assignee, dueDate || undefined, projectId);
+    }
+
+    setTitle('');
+    setDescription('');
+    setPriority('medium');
+    onClose();
   };
+
+  const isEditing = Boolean(taskToEdit);
 
   return (
     <AnimatePresence>
@@ -71,7 +106,16 @@ export const AddTaskModal = ({
             className="relative w-full max-w-md bg-brand-surface/90 border border-white/10 rounded-2xl shadow-2xl shadow-black/40 p-6 backdrop-blur"
           >
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold tracking-tight">Create New Task</h3>
+              <div>
+                <h3 className="text-xl font-bold tracking-tight">
+                  {isEditing ? 'Edit Task' : 'Create New Task'}
+                </h3>
+                <p className="mt-1 text-sm text-brand-muted">
+                  {isEditing
+                    ? 'Update the details and move the task if needed.'
+                    : 'Capture the details so your board stays organized.'}
+                </p>
+              </div>
               <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-lg text-brand-muted">
                 <X size={20} />
               </button>
@@ -186,7 +230,7 @@ export const AddTaskModal = ({
                   disabled={!title.trim() || !columnId || !projectId}
                   className="w-full py-3 bg-white text-black rounded-xl font-bold hover:bg-white/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-white/5"
                 >
-                  Create Task
+                  {isEditing ? 'Save Changes' : 'Create Task'}
                 </button>
               </div>
             </form>
