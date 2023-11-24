@@ -4,14 +4,17 @@ import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { generateChatResponse } from "../services/gemini";
 import { useMutation } from "@tanstack/react-query";
-import { PanelLeftOpen, Sparkles, ArrowLeft } from "lucide-react";
+import { PanelLeftOpen, Sparkles, ArrowLeft, SunMedium, MoonStar } from "lucide-react";
 import { motion } from "framer-motion";
+import { ThemeMode } from "../App";
 
 interface ChatWindowProps {
   onBack?: () => void;
+  themeMode: ThemeMode;
+  onToggleTheme: () => void;
 }
 
-export const ChatWindow = ({ onBack }: ChatWindowProps) => {
+export const ChatWindow = ({ onBack, themeMode, onToggleTheme }: ChatWindowProps) => {
   const {
     sessions,
     currentSessionId,
@@ -108,6 +111,13 @@ export const ChatWindow = ({ onBack }: ChatWindowProps) => {
           </h2>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="p-2 hover:bg-white/5 rounded-lg transition-colors text-brand-muted hover:text-white"
+          >
+            {themeMode === "aurora" ? <SunMedium size={18} /> : <MoonStar size={18} />}
+          </button>
           <div className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] font-medium tracking-wider uppercase opacity-60">
             TaskFlow AI
           </div>
