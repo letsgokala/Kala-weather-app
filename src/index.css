@@ -7,30 +7,64 @@
   --color-brand-border: rgba(255, 255, 255, 0.08);
   --color-brand-accent: #7ad7ff;
   --color-brand-muted: #9aa3b2;
+  --color-app-base: #05060b;
+  --color-app-end: #070711;
+  --gradient-one: rgba(64, 132, 255, 0.18);
+  --gradient-two: rgba(94, 255, 224, 0.12);
+  --gradient-three: rgba(255, 140, 120, 0.08);
+  --surface-fill: rgba(6, 8, 14, 0.72);
+  --surface-border: rgba(255, 255, 255, 0.05);
+  --surface-highlight: rgba(255, 255, 255, 0.04);
+  --surface-glow-one: rgba(122, 215, 255, 0.12);
+  --surface-glow-two: rgba(138, 255, 196, 0.08);
+  --surface-glow-three: rgba(255, 186, 146, 0.08);
 
   --font-sans: "Space Grotesk", "Manrope", sans-serif;
+}
+
+:root[data-theme="daybreak"] {
+  --color-brand-bg: #f3efe5;
+  --color-brand-surface: #f8f4eb;
+  --color-brand-border: rgba(70, 56, 40, 0.12);
+  --color-brand-accent: #2d85d1;
+  --color-brand-muted: #6f6458;
+  --color-app-base: #efe6d7;
+  --color-app-end: #f6f1e8;
+  --gradient-one: rgba(255, 166, 92, 0.18);
+  --gradient-two: rgba(95, 170, 255, 0.16);
+  --gradient-three: rgba(146, 216, 176, 0.14);
+  --surface-fill: rgba(255, 251, 245, 0.8);
+  --surface-border: rgba(70, 56, 40, 0.08);
+  --surface-highlight: rgba(255, 255, 255, 0.45);
+  --surface-glow-one: rgba(255, 189, 128, 0.22);
+  --surface-glow-two: rgba(115, 177, 255, 0.14);
+  --surface-glow-three: rgba(160, 216, 190, 0.14);
 }
 
 @layer base {
   body {
     @apply text-white antialiased;
   }
+
+  :root[data-theme="daybreak"] body {
+    color: #221d17;
+  }
 }
 
 .app-shell {
   background:
-    radial-gradient(1200px circle at 10% 15%, rgba(64, 132, 255, 0.18), transparent 45%),
-    radial-gradient(900px circle at 85% 20%, rgba(94, 255, 224, 0.12), transparent 50%),
-    radial-gradient(700px circle at 50% 100%, rgba(255, 140, 120, 0.08), transparent 55%),
-    linear-gradient(180deg, #05060b 0%, #070711 60%, #05060b 100%);
+    radial-gradient(1200px circle at 10% 15%, var(--gradient-one), transparent 45%),
+    radial-gradient(900px circle at 85% 20%, var(--gradient-two), transparent 50%),
+    radial-gradient(700px circle at 50% 100%, var(--gradient-three), transparent 55%),
+    linear-gradient(180deg, var(--color-app-base) 0%, var(--color-app-end) 60%, var(--color-app-base) 100%);
 }
 
 .app-surface {
   position: relative;
-  background: rgba(6, 8, 14, 0.72);
+  background: var(--surface-fill);
   backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--surface-border);
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
   isolation: isolate;
 }
 
@@ -39,9 +73,9 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(600px circle at 10% 10%, rgba(122, 215, 255, 0.12), transparent 60%),
-    radial-gradient(500px circle at 90% 20%, rgba(138, 255, 196, 0.08), transparent 55%),
-    radial-gradient(700px circle at 50% 100%, rgba(255, 186, 146, 0.08), transparent 60%);
+    radial-gradient(600px circle at 10% 10%, var(--surface-glow-one), transparent 60%),
+    radial-gradient(500px circle at 90% 20%, var(--surface-glow-two), transparent 55%),
+    radial-gradient(700px circle at 50% 100%, var(--surface-glow-three), transparent 60%);
   opacity: 0.8;
   pointer-events: none;
   z-index: 0;
